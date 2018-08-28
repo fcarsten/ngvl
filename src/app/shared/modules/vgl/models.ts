@@ -6,6 +6,7 @@ import { OnlineResourceModel } from "portal-core-ui/model/data/onlineresource.mo
  */
 export interface User {
   fullName: string;
+  email: string;
   acceptedTermsConditions: number;
   // AWS details
   arnExecution: string;
@@ -15,6 +16,7 @@ export interface User {
 
 export const ANONYMOUS_USER: User = {
   fullName: 'Anonymous User',
+  email: undefined,
   acceptedTermsConditions: 0,
   arnExecution: undefined,
   arnStorage: undefined,
@@ -149,6 +151,8 @@ export class JobDownload {
     owner: string;
     parentUrl: string;
     parentName: string;
+    onlineResource?: any;    
+    cswRecord?: CSWRecordModel;
 }
 
 export interface Job {
@@ -291,7 +295,7 @@ export interface DownloadOptions {
     srsName?: string,
     featureType?: string,
     id?: number,
-    bookmarkId?: string,
+    bookmarkId?: number,
     bookmarkOptionName?: string;
 }
 
