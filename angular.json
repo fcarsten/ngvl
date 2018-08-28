@@ -20,6 +20,7 @@
             "assets": [
               "src/assets",
               "src/favicon.ico",
+              "src/.htaccess",
               {
                 "glob": "**/*",
                 "input": "node_modules/ngx-monaco-editor/assets/monaco",
@@ -95,6 +96,7 @@
             "assets": [
               "src/assets",
               "src/favicon.ico",
+              "src/.htaccess",
               {
                 "glob": "**/*",
                 "input": "node_modules/ngx-monaco-editor/assets/monaco",
