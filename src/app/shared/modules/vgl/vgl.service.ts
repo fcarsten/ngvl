@@ -1,9 +1,10 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 
-import { Observable } from 'rxjs/Observable';
+import { Observable, of, throwError } from 'rxjs';
+import { catchError, mergeMap, switchMap, map } from 'rxjs/operators';
 
-import { Problem, Problems, Solution, User, TreeJobs, Series, CloudFileInformation, DownloadOptions, JobDownload, NCIDetails, BookMark, Registry, ComputeService, MachineImage, ComputeType } from './models';
+import { Job, Problem, Problems, Solution, User, TreeJobs, Series, CloudFileInformation, DownloadOptions, JobDownload, NCIDetails, BookMark, Registry, ComputeService, MachineImage, ComputeType } from './models';
 import { CSWRecordModel } from 'portal-core-ui/model/data/cswrecord.model';
 
 import { environment } from '../../../../environments/environment';
@@ -15,22 +16,54 @@ interface VglResponse<T> {
     success: boolean;
 }
 
-function vglData<T>(response: VglResponse<T>): T {
-  const data = response.data;
+function vglData<T>(response: VglResponse<T>): Observable<T> {
+  // Convert a VGL error into an Observable error
+  if (!response.success) {
+    console.log('VGL response error: ' + JSON.stringify(response));
+    return throwError(response.msg);
+  }
 
-  return data;
+  // Otherwise, wrap the response data in a new Observable an return.
+  return of(response.data);
 }
 
 @Injectable()
 export class VglService {
 
-    constructor(private http: HttpClient) { }
+  constructor(private http: HttpClient) { }
 
-    private vglRequest<T>(endpoint: string, options?): Observable<T> {
-        const url = environment.portalBaseUrl + endpoint;
-        const opts: { observe: 'body' } = options ? { ...options, observe: 'body' } : { observe: 'body' };
-        return this.http.get<VglResponse<T>>(url, opts).map(vglData);
+  private vglRequest<T>(endpoint: string, options: any = {}): Observable<T> {
+    const params = options.params || {};
+    const opts = {...options};
+    delete opts.params;
+    return this.vglGet<T>(endpoint, params, opts);
+  }
+
+  private vglPost<T>(endpoint: string, params = {}, options = {}): Observable<T> {
+    const url = environment.portalBaseUrl + endpoint;
+
+    const body = new FormData();
+    for (const key in params) {
+      const val = params[key];
+      if (Array.isArray(val)) {
+        val.forEach(v => body.append(key, v))
+      }
+      else {
+        body.append(key, val);
+      }
     }
+
+    const opts: { observe: 'body' } = { ...options, observe: 'body' };
+
+    return this.http.post<VglResponse<T>>(url, body, opts).pipe(switchMap(vglData));
+  }
+
+  private vglGet<T>(endpoint: string, params = {}, options?): Observable<T> {
+    const url = environment.portalBaseUrl + endpoint;
+    const opts: { observe: 'body' } = { ...options, observe: 'body', params: params };
+
+    return this.http.get<VglResponse<T>>(url, opts).pipe(switchMap(vglData));
+  }
 
     public get user(): Observable<User> {
         return this.vglRequest('secure/getUser.do');
@@ -193,46 +226,99 @@ export class VglService {
         return this.vglRequest('secure/duplicateJob.do', options);
     }
 
-    public updateOrCreateJob(name: string, description: string, seriesId: number,
-        computeServiceId, string, computeVmId: string,
-        computeVmRunCommand: string, computeTypeId: string, ncpus: number,
-        jobfs: number, mem: number, registeredUrl: string,
-        emailNotification: boolean, walltime: number): Observable<any> {
-        let httpParams: HttpParams = new HttpParams();
+  public submitJob(job: Job): Observable<any> {
+    const params = { jobId: job.id };
+    return this.vglGet('secure/submitJob.do', params);
+  }
 
-        for (let arg in arguments) {
-            //params.set(arg.toString(), )
-        }
-        /*
-        if (name)
-            params.set('name', name);
-        if(description)
-            params.set('description', description);
-        if(seriesId)
-            params.set('seriesId', seriesId);
-        if(computeServiceId)
-            params.set('', );
-        if(computeVmId)
-            params.set('', );
-        if(computeVmRunCommand)
-            params.set('', );
-        if(computeTypeId)
-            params.set('', );
-        if(ncpus)
-            params.set('', );
-        if(jobfs)
-            params.set('', );
-        if(mem)
-            params.set('', );
-        if(registeredUrl)
-            params.set('', );
-        if(emailNotification)
-            params.set('', );
-        if(walltime)
-            params.set('', );
-        */
-        return this.vglRequest('secure/updateOrCreateJob.do', { params: httpParams });
+  public saveJob(job: Job,
+                 downloads: JobDownload[],
+                 template: string,
+                 solutions: Solution[]): Observable<Job> {
+    // Ensure the job object is created/updated first, which also ensures we
+    // have a job id for the subsequent requests.
+    return this.updateJob(job).pipe(
+      // Update downloads for the job, and pass along the updated job object.
+      switchMap(job => this.updateJobDownloads(job, downloads).pipe(map(x => job))),
+
+      // Next associate the template with the job, and if we succeed then return
+      // the updated job object.
+      switchMap(job => this.saveScript(template, job, solutions).pipe(map(x => job))),
+    );
+  }
+
+  public updateJobDownloads(job: Job, downloads: JobDownload[]): Observable<any> {
+    // If we have no downloads then skip the request.
+    if (downloads.length === 0) {
+      return of(null);
     }
+
+    const names: string[] = [];
+    const descriptions: string[] = [];
+    const urls: string[] = [];
+    const localPaths: string[] = [];
+
+    for (const download of downloads) {
+      names.push(download.name);
+      descriptions.push(download.description);
+      urls.push(download.url);
+      localPaths.push(download.localPath);
+    }
+
+    const params = {
+      id: job.id,
+      name: names,
+      description: descriptions,
+      url: urls,
+      localPath: localPaths
+    };
+
+    // Use a POST request since the download descriptions could get very large.
+    return this.vglPost('secure/updateJobDownloads.do', params);
+  }
+
+  public saveScript(template: string, job: Job, solutions: Solution[]): Observable<any> {
+    const params = {
+      jobId: job.id,
+      sourceText: template,
+      solutions: solutions.map(s => s['@id'])
+    };
+
+    // Use a POST request since the template is arbitrarily large.
+    return this.vglPost('secure/saveScript.do', params);
+  }
+
+  public updateJob(job: Job): Observable<Job> {
+    // Copy the properties of the job for the request parameters.
+    const params = {...job};
+
+    // Remove any properties that are undefined, so they do not get included in
+    // the request parameters.
+    for (const p of Object.getOwnPropertyNames(job)) {
+      if (params[p] == undefined) {
+        delete params[p];
+      }
+    }
+
+    // If no job id is supplied then updateOrCreateJob.do will create a new job
+    // with the supplied parameters. So remove the id from job if it's not a
+    // valid job id.
+    if (params.hasOwnProperty('id') && params.id == -1) {
+      delete params.id;
+    }
+
+    return this.vglGet('secure/updateOrCreateJob.do', params)
+      .pipe(
+        map((jobs: Job[]) => {
+          // Should always be only 1 job.
+          if (jobs.length > 0) {
+            return jobs[0];
+          }
+
+          return null;
+        })
+      );
+  }
 
     public getComputeServices(): Observable<ComputeService[]> {
         return this.vglRequest('secure/getComputeServices.do');
@@ -253,14 +339,6 @@ export class VglService {
             }
         }
         return this.vglRequest('secure/getVmTypesForComputeService.do', options);
-    }
-
-    public submitJob(jobId: number): Observable<any> {
-        const options = {
-            params: { jobId: jobId.toString() }
-        };
-
-        return this.vglRequest('secure/submitJob.do', options);
     }
 
     public getAuditLogs(jobId: number): Observable<any> {
