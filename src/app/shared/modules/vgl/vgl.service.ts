@@ -16,15 +16,15 @@ interface VglResponse<T> {
     success: boolean;
 }
 
-function vglData<T>(response: VglResponse<T>): Observable<T> {
+async function vglData<T>(response: VglResponse<T>): Promise<T> {
   // Convert a VGL error into an Observable error
   if (!response.success) {
     console.log('VGL response error: ' + JSON.stringify(response));
-    return throwError(response.msg);
+    throw Error(response.msg);
   }
 
   // Otherwise, wrap the response data in a new Observable an return.
-  return of(response.data);
+  return response.data;
 }
 
 @Injectable()
@@ -39,7 +39,7 @@ export class VglService {
     return this.vglGet<T>(endpoint, params, opts);
   }
 
-  private vglPost<T>(endpoint: string, params = {}, options = {}): Observable<T> {
+  private async vglPost<T>(endpoint: string, params = {}, options = {}): Promise<T> {
     const url = environment.portalBaseUrl + endpoint;
 
     const body = new FormData();
@@ -54,7 +54,9 @@ export class VglService {
 
     const opts: { observe: 'body' } = { ...options, observe: 'body' };
 
-    return this.http.post<VglResponse<T>>(url, body, opts).pipe(switchMap(vglData));
+    let res1= this.http.post<VglResponse<T>>(url, body, opts)
+    let res2= res1.pipe(switchMap(vglData));
+    return res2.toPromise();
   }
 
   private vglGet<T>(endpoint: string, params = {}, options?): Observable<T> {
@@ -64,9 +66,9 @@ export class VglService {
     return this.http.get<VglResponse<T>>(url, opts).pipe(switchMap(vglData));
   }
 
-    public get user(): Observable<User> {
-        return this.vglRequest('secure/getUser.do');
-    }
+  public get user(): Observable<User> {
+      return this.vglRequest('secure/getUser.do');
+  }
 
   public get problems(): Observable<Problem[]> {
     return this.vglRequest('secure/getProblems.do').pipe(
@@ -271,28 +273,29 @@ export class VglService {
     return this.vglGet('secure/submitJob.do', params);
   }
 
-  public saveJob(job: Job,
+  public async saveJob(job: Job,
                  downloads: JobDownload[],
                  template: string,
                  solutions: Solution[],
-                 files: any[]): Observable<Job> {
+                 files: any[]): Promise<Job> {
     // Ensure the job object is created/updated first, which also ensures we
     // have a job id for the subsequent requests.
-    return this.updateJob(job).pipe(
-      // Update downloads for the job, and pass along the updated job object.
-      switchMap(job => this.updateJobDownloads(job, downloads).pipe(map(() => job))),
+    try {
+      job = await this.updateJob(job);
+      await this.updateJobDownloads(job, downloads);
+      await this.saveScript(template, job, solutions);
+      await this.uploadFiles(job, files);
+    } catch(error) {
+      console.log(error);
+    }
 
-      // Next associate the template with the job, and if we succeed then return
-      // the updated job object.
-      switchMap(job => this.saveScript(template, job, solutions).pipe(map(() => job))),
-      switchMap(job => this.uploadFiles(job, files).pipe(map(() => job))),
-    );
+    return job;
   }
 
-  public updateJobDownloads(job: Job, downloads: JobDownload[]): Observable<any> {
+  public async updateJobDownloads(job: Job, downloads: JobDownload[]): Promise<any> {
     // If we have no downloads then skip the request.
     if (downloads.length === 0) {
-      return of(null);
+      return null;
     }
 
     const names: string[] = [];
@@ -320,7 +323,7 @@ export class VglService {
     return this.vglPost('secure/updateJobDownloads.do', params);
   }
 
-  public saveScript(template: string, job: Job, solutions: Solution[]): Observable<any> {
+  public async saveScript(template: string, job: Job, solutions: Solution[]): Promise<any> {
     const params = {
       jobId: job.id,
       sourceText: template,
@@ -331,7 +334,7 @@ export class VglService {
     return this.vglPost('secure/saveScript.do', params);
   }
 
-  public uploadFiles(job: Job, files: any[]): Observable<any> {
+  public async uploadFiles(job: Job, files: any[]): Promise<any> {
 
     let headers = new Headers();
     headers.append('enctype', 'multipart/form-data');
@@ -346,7 +349,7 @@ export class VglService {
     return forkJoin(requests).pipe(defaultIfEmpty([]));
   }
 
-  public updateJob(job: Job): Observable<Job> {
+  public async updateJob(job: Job): Promise<Job> {
     // Copy the properties of the job for the request parameters.
     const params = {...job};
 
@@ -371,7 +374,7 @@ export class VglService {
         delete params.computeServiceId;
     }
 
-    return this.vglGet('secure/updateOrCreateJob.do', params)
+    let res=  this.vglGet('secure/updateOrCreateJob.do', params)
       .pipe(
         map((jobs: Job[]) => {
           // Should always be only 1 job.
@@ -382,6 +385,7 @@ export class VglService {
           return null;
         })
       );
+    return res.toPromise();
   }
 
   /**
@@ -445,7 +449,7 @@ export class VglService {
    * @returns Observable<MachineImage[]> with valid machine images
    *
    */
-  public getMachineImages(computeServiceId: string, solutions: string[] = [], jobId?: number): Observable<MachineImage[]> {
+  public async getMachineImages(computeServiceId: string, solutions: string[] = [], jobId?: number): Promise<MachineImage[]> {
     const params: {
       computeServiceId: string,
       solutions?: string[],
@@ -459,7 +463,8 @@ export class VglService {
       params.jobId = jobId;
     }
 
-    return this.vglPost('secure/getVmImagesForComputeService.do', params);
+    let res: Promise<MachineImage[]>= this.vglPost('secure/getVmImagesForComputeService.do', params);
+    return res;
   }
 
   public getComputeTypes(computeServiceId: string, machineImageId: string): Observable<ComputeType[]> {

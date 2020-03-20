@@ -34,169 +34,190 @@ export class UserStateService {
 
   private _solutionVarPrefixMap: { [key: string]: number } = {};
 
-  constructor(private vgl: VglService, private http: HttpClient) {}
+  constructor(private vgl: VglService, private http: HttpClient) {
+    //
+    // TODO: Repopulate from previous service state if it got nuked by a login redirect.
+    //
+    this.newJob();
 
-    private _currentView: BehaviorSubject<ViewType> = new BehaviorSubject(null);
-    public readonly currentView: Observable<ViewType> = this._currentView.asObservable();
+    this.selectedSolutions.subscribe(solutions => {
+      this.updateJobFields(
+        {
+          jobSolutions: solutions.map(s => s['@id'])
+        }
+        );
+    });
+  }
 
-    private _user: BehaviorSubject<User> = new BehaviorSubject(ANONYMOUS_USER);
-    public readonly user: Observable<User> = this._user.asObservable();
-
-    private _nciDetails: BehaviorSubject<NCIDetails> = new BehaviorSubject(null);
-    public readonly nciDetails: Observable<NCIDetails> = this._nciDetails.asObservable();
-
-    private _solutionQuery: BehaviorSubject<SolutionQuery> = new BehaviorSubject({});
-    public readonly solutionQuery: Observable<SolutionQuery> = this._solutionQuery.asObservable();
-
-    private _selectedSolutions: BehaviorSubject<Solution[]> = new BehaviorSubject([]);
-    public readonly selectedSolutions: Observable<Solution[]> = this._selectedSolutions.asObservable();
-
-    private _solutionBindings: BehaviorSubject<SolutionVarBindings> = new BehaviorSubject({});
-    public readonly solutionBindings: Observable<SolutionVarBindings> = this._solutionBindings.asObservable();
-
-    private _jobTemplate: BehaviorSubject<string> = new BehaviorSubject('');
-    public readonly jobTemplate: Observable<string> = this._jobTemplate.asObservable();
-    public readonly jobTemplateWithVars: Observable<string> = this.jobTemplate.pipe(
-      map(template => this._subBindingsIntoTemplate(template))
-    );
-
-    private _uploadedFiles: BehaviorSubject<any[]> = new BehaviorSubject([]);
-    public readonly uploadedFiles: Observable<any[]> = this._uploadedFiles.asObservable();
-
-    private _jobDownloads: BehaviorSubject<JobDownload[]> = new BehaviorSubject([]);
-    public readonly jobDownloads: Observable<JobDownload[]> = this._jobDownloads.asObservable();
-
-    private _jobCloudFiles: BehaviorSubject<CloudFileInformation[]> = new BehaviorSubject([]);
-    public readonly jobCloudFiles: Observable<CloudFileInformation[]> = this._jobCloudFiles.asObservable();
-
-    private _bookmarks: BehaviorSubject<BookMark[]> = new BehaviorSubject([]);
-    public readonly bookmarks: Observable<BookMark[]> = this._bookmarks.asObservable();
-
-    private _job: BehaviorSubject<Job> = new BehaviorSubject(null);
-    public readonly job: Observable<Job> = this._job.asObservable();
-
-    public setView(viewType: ViewType): Observable<ViewType> {
-        this._currentView.next(viewType);
-        return this.currentView;
+  public updateJobFields(x) {
+    if(x) {
+      let job = {...this.getJob()};
+      Object.assign(job, x);
+      this.updateJob(job);
     }
+  }
 
-    public updateUser(): Observable<User> {
-        return this.vgl.user.pipe(
-          map(user => {
-            // If full name is empty (as with AAF login), use email address as name
-            if (user.fullName === undefined || user.fullName === "") {
-                user.fullName = user.email;
-            }
-            // For a new user AWS details may be null, set to empty string if so
-            user.arnExecution = user.arnExecution ? user.arnExecution : "";
-            user.arnStorage = user.arnStorage ? user.arnStorage : "";
-            user.awsKeyName = user.awsKeyName ? user.awsKeyName : "";
-            this._user.next(user);
+  private _currentView: BehaviorSubject<ViewType> = new BehaviorSubject(null);
+  public readonly currentView: Observable<ViewType> = this._currentView.asObservable();
 
-            // Update bookmarks
-            this.updateBookMarks();
+  private _user: BehaviorSubject<User> = new BehaviorSubject(ANONYMOUS_USER);
+  public readonly user: Observable<User> = this._user.asObservable();
 
-            // Update NCI details (if they exist)
-            this.vgl.nciDetails.subscribe(
-                nciDetails => {
-                    this._nciDetails.next(nciDetails);
-                }, () => { }
-            );
+  private _nciDetails: BehaviorSubject<NCIDetails> = new BehaviorSubject(null);
+  public readonly nciDetails: Observable<NCIDetails> = this._nciDetails.asObservable();
 
-            return user;
-        },
-        // Failure to retrieve User means no User logged in
-        () => {
-            this.updateAnonymousUser();
-            return ANONYMOUS_USER;
-        }));
-    }
+  private _solutionQuery: BehaviorSubject<SolutionQuery> = new BehaviorSubject({});
+  public readonly solutionQuery: Observable<SolutionQuery> = this._solutionQuery.asObservable();
 
-    public updateAnonymousUser() {
-        this._user.next(ANONYMOUS_USER);
-        this._bookmarks.next([]);
-    }
+  private _selectedSolutions: BehaviorSubject<Solution[]> = new BehaviorSubject([]);
+  public readonly selectedSolutions: Observable<Solution[]> = this._selectedSolutions.asObservable();
 
-    public updateNciDetails() {
+  private _solutionBindings: BehaviorSubject<SolutionVarBindings> = new BehaviorSubject({});
+  public readonly solutionBindings: Observable<SolutionVarBindings> = this._solutionBindings.asObservable();
+
+  private _jobTemplate: BehaviorSubject<string> = new BehaviorSubject('');
+  public readonly jobTemplate: Observable<string> = this._jobTemplate.asObservable();
+  public readonly jobTemplateWithVars: Observable<string> = this.jobTemplate.pipe(
+    map(template => this._subBindingsIntoTemplate(template))
+  );
+
+  private _uploadedFiles: BehaviorSubject<any[]> = new BehaviorSubject([]);
+  public readonly uploadedFiles: Observable<any[]> = this._uploadedFiles.asObservable();
+
+  private _jobDownloads: BehaviorSubject<JobDownload[]> = new BehaviorSubject([]);
+  public readonly jobDownloads: Observable<JobDownload[]> = this._jobDownloads.asObservable();
+
+  private _jobCloudFiles: BehaviorSubject<CloudFileInformation[]> = new BehaviorSubject([]);
+  public readonly jobCloudFiles: Observable<CloudFileInformation[]> = this._jobCloudFiles.asObservable();
+
+  private _bookmarks: BehaviorSubject<BookMark[]> = new BehaviorSubject([]);
+  public readonly bookmarks: Observable<BookMark[]> = this._bookmarks.asObservable();
+
+  private _job: BehaviorSubject<Job> = new BehaviorSubject(null);
+  public readonly job: Observable<Job> = this._job.asObservable();
+
+  public setView(viewType: ViewType): Observable<ViewType> {
+      this._currentView.next(viewType);
+      return this.currentView;
+  }
+
+  public updateUser(): Observable<User> {
+    return this.vgl.user.pipe(
+      map(user => {
+        // If full name is empty (as with AAF login), use email address as name
+        if (user.fullName === undefined || user.fullName === "") {
+            user.fullName = user.email;
+        }
+        // For a new user AWS details may be null, set to empty string if so
+        user.arnExecution = user.arnExecution ? user.arnExecution : "";
+        user.arnStorage = user.arnStorage ? user.arnStorage : "";
+        user.awsKeyName = user.awsKeyName ? user.awsKeyName : "";
+        this._user.next(user);
+
+        // Update bookmarks
+        this.updateBookMarks();
+
+        // Update NCI details (if they exist)
         this.vgl.nciDetails.subscribe(
             nciDetails => {
                 this._nciDetails.next(nciDetails);
-            }
+            }, () => { }
         );
-    }
 
-    public updateBookMarks() {
-        this.vgl.getBookMarks().subscribe(bookmarklist => this._bookmarks.next(bookmarklist));
-    }
+        return user;
+    },
+    // Failure to retrieve User means no User logged in
+    () => {
+        this.updateAnonymousUser();
+        return ANONYMOUS_USER;
+    }));
+  }
 
-    public setUserAwsDetails(arnExecution: string, arnStorage: string, acceptedTermsConditions: number, awsKeyName: string): Observable<any> {
-        return this.vgl.setUserDetails(arnExecution, arnStorage, acceptedTermsConditions, awsKeyName);
-    }
+  public updateAnonymousUser() {
+      this._user.next(ANONYMOUS_USER);
+      this._bookmarks.next([]);
+  }
 
-    public setUserNciDetails(nciUsername: string, nciProjectCode: string, nciKeyfile: any): Observable<any> {
-        return this.vgl.setUserNciDetails(nciUsername, nciProjectCode, nciKeyfile);
-    }
+  public updateNciDetails() {
+      this.vgl.nciDetails.subscribe(
+          nciDetails => {
+              this._nciDetails.next(nciDetails);
+          }
+      );
+  }
 
-    public getTermsAndConditions(): Observable<any> {
-        return this.vgl.getTermsAndConditions();
-    }
+  public updateBookMarks() {
+      this.vgl.getBookMarks().subscribe(bookmarklist => this._bookmarks.next(bookmarklist));
+  }
 
-    public getHasConfiguredComputeServices(): Observable<any> {
-        return this.vgl.getHasConfiguredComputeServices();
-    }
+  public setUserAwsDetails(arnExecution: string, arnStorage: string, acceptedTermsConditions: number, awsKeyName: string): Observable<any> {
+      return this.vgl.setUserDetails(arnExecution, arnStorage, acceptedTermsConditions, awsKeyName);
+  }
 
-    public acceptTermsAndConditions(): void {
-        this.vgl.user.subscribe(
-            user => {
-                if (user.acceptedTermsConditions !== 1) {
-                    user.acceptedTermsConditions = 1;
-                    this._user.next(user);
-                }
-            },
-            error => {
-                // TODO: Proper error reporting
-                console.log(error.message);
-            }
-        );
-    }
+  public setUserNciDetails(nciUsername: string, nciProjectCode: string, nciKeyfile: any): Observable<any> {
+      return this.vgl.setUserNciDetails(nciUsername, nciProjectCode, nciKeyfile);
+  }
 
-    public downloadCloudFormationScript() {
-        this.vgl.downloadCloudFormationScript().subscribe(
-            response => {
-                saveAs(response, 'vgl-cloudformation.json');
-            }, error => {
-                // TODO: Proper error reporting
-                console.log(error.message);
-            }
-        );
-    }
+  public getTermsAndConditions(): Observable<any> {
+      return this.vgl.getTermsAndConditions();
+  }
 
-    public setSolutionQuery(query: SolutionQuery) {
-        this._solutionQuery.next(query);
-    }
+  public getHasConfiguredComputeServices(): Observable<any> {
+      return this.vgl.getHasConfiguredComputeServices();
+  }
 
-    public addSolutionToCart(solution: Solution) {
-        // Add solution to the cart, unless it's already in.
-        if (solution) {
-            const check = (s: Solution) => {
-                return s["@id"] === solution["@id"];
-              };
+  public acceptTermsAndConditions(): void {
+      this.vgl.user.subscribe(
+          user => {
+              if (user.acceptedTermsConditions !== 1) {
+                  user.acceptedTermsConditions = 1;
+                  this._user.next(user);
+              }
+          },
+          error => {
+              // TODO: Proper error reporting
+              console.log(error.message);
+          }
+      );
+  }
 
-            this.updateSolutionsCart((cart: Solution[]) => {
-                if (!cart.find(check)) {
-                    return [...cart, solution];
-                }
-                return cart;
-            });
-        }
+  public downloadCloudFormationScript() {
+      this.vgl.downloadCloudFormationScript().subscribe(
+          response => {
+              saveAs(response, 'vgl-cloudformation.json');
+          }, error => {
+              // TODO: Proper error reporting
+              console.log(error.message);
+          }
+      );
+  }
 
-    }
+  public setSolutionQuery(query: SolutionQuery) {
+      this._solutionQuery.next(query);
+  }
 
-    public removeSolutionFromCart(solution: Solution) {
-        if (solution) {
-            this.updateSolutionsCart((cart: Solution[]) => cart.filter(s => s['@id'] !== solution['@id']));
-        }
-    }
+  public addSolutionToCart(solution: Solution) {
+      // Add solution to the cart, unless it's already in.
+      if (solution) {
+          const check = (s: Solution) => {
+              return s["@id"] === solution["@id"];
+            };
+
+          this.updateSolutionsCart((cart: Solution[]) => {
+              if (!cart.find(check)) {
+                  return [...cart, solution];
+              }
+              return cart;
+          });
+      }
+
+  }
+
+  public removeSolutionFromCart(solution: Solution) {
+      if (solution) {
+          this.updateSolutionsCart((cart: Solution[]) => cart.filter(s => s['@id'] !== solution['@id']));
+      }
+  }
 
   public updateSolutionsCart(f: ((cart: Solution[]) => Solution[])): Solution[] {
     // Call the passed function to update the current selection.
@@ -382,7 +403,7 @@ export class UserStateService {
   /**
    * Return the current state of the user Job object.
    */
-  public getJob(): Job {
+  private getJob(): Job {
     return this._job.getValue();
   }
 
@@ -473,12 +494,11 @@ export class UserStateService {
    * Create and load a new empty job, keeping any existing user selections. Note
    * that this does not persist the job object on the server.
    */
-  public newJob(): Observable<Job> {
+  public newJob() {
     // Create a new job with a default name
     const name = "VGL Job - " + this.datePipe.transform(new Date(), 'medium');
     const job = this.createEmptyJob({name: name});
-
-    return of(this.updateJob(job));
+    this.updateJob(job)
   }
 
   private _subBindingsIntoTemplate(template) {

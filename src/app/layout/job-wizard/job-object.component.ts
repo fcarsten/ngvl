@@ -5,6 +5,7 @@ import { UserStateService } from '../../shared';
 import { ComputeService, MachineImage, ComputeType, Job } from '../../shared/modules/vgl/models';
 import { VglService } from '../../shared/modules/vgl/vgl.service';
 import { Solution } from '../../shared/modules/vgl/models';
+import { Observable } from 'rxjs';
 
 @Component({
     selector: 'app-job-object',
@@ -13,7 +14,7 @@ import { Solution } from '../../shared/modules/vgl/models';
 })
 export class JobObjectComponent implements OnDestroy, OnInit {
 
-  // Local copy of the UserStateService Job object
+  // // Local copy of the UserStateService Job object
   job: Job;
 
   // Use walltime flag. Display purposes only, not stored in Job
@@ -31,11 +32,7 @@ export class JobObjectComponent implements OnDestroy, OnInit {
   form: NgForm;
 
   constructor(private userStateService: UserStateService,
-              private vgl: VglService) {
-    // Initialise the job object so we can bind to it and copy parameters as
-    // required.
-    this.job = this.userStateService.createEmptyJob();
-  }
+              private vgl: VglService) { }
 
   /**
    * Load the compute options (providers, toolboxes andf resources) from the
@@ -44,17 +41,7 @@ export class JobObjectComponent implements OnDestroy, OnInit {
    */
   ngOnInit() {
     // Update compute services list for new job.
-    this._solutionsSub = this.userStateService.selectedSolutions.subscribe(solutions => {
-      this.userStateService.updateJob(
-        {
-          ...this.job,
-          jobSolutions: solutions.map(s => s['@id'])
-        }
-        );
-    });
-
     this._jobSub = this.userStateService.job.subscribe(job => {
-      Object.assign(this.job, job || {});
       this.updateComputeServices();
     });
   }
@@ -67,6 +54,11 @@ export class JobObjectComponent implements OnDestroy, OnInit {
     if (this._solutionsSub) {
       this._solutionsSub.unsubscribe();
     }
+  }
+
+
+  getJob(): Observable<Job> {
+    return this.userStateService.job;
   }
 
   updateComputeServices() {
@@ -112,33 +104,37 @@ export class JobObjectComponent implements OnDestroy, OnInit {
    *
    * @param computeServiceId the new compute provider id.
    */
-  public computeProviderChanged(): void {
+  public async computeProviderChanged(): Promise<void> {
     const computeServiceId: string = this.job.computeServiceId;
 
     if (computeServiceId && computeServiceId !== "") {
       // If we have a list of solutions use that, otherwise use the job id if
       // one has been assigned. If neither is available, don't load any
       // toolboxes yet.
-      this.vgl.getMachineImages(computeServiceId, this.job.jobSolutions, null)
-        .subscribe(images => {
-          this.toolboxes = images;
+      try {
+        let images = await this.vgl.getMachineImages(computeServiceId, this.job.jobSolutions, null);
 
-          // Select the first image in the list by default, and update resources accordingly.
-          if (this.toolboxes && this.toolboxes.length > 0) {
-            // TODO: Check if existing job already has a toolbox selected
-            let toolbox: MachineImage = this.toolboxes.find(it => it.imageId === this.job.computeVmId);
-            if(toolbox === undefined) {
-              toolbox = this.toolboxes[0];
-              this.job.computeVmId = toolbox.imageId;
-            }
-          } else {
-            this.job.computeVmId = null;
+        this.toolboxes = images;
+
+        // Select the first image in the list by default, and update resources accordingly.
+        if (this.toolboxes && this.toolboxes.length > 0) {
+          // TODO: Check if existing job already has a toolbox selected
+          let toolbox: MachineImage = this.toolboxes.find(it => it.imageId === this.job.computeVmId);
+          if(toolbox === undefined) {
+            toolbox = this.toolboxes[0];
+            this.job.computeVmId = toolbox.imageId;
           }
-          this.toolboxChanged();
-        });
-        if( this.isHPCProvider(computeServiceId)) {
-          this.useWalltime = true
+        } else {
+          this.job.computeVmId = null;
         }
+        this.toolboxChanged();
+      } catch (error) {
+        console.log(error)
+      }
+
+      if( this.isHPCProvider(computeServiceId)) {
+        this.useWalltime = true
+      }
     } else {
       this.toolboxes = [];
       this.job.computeVmId = null;

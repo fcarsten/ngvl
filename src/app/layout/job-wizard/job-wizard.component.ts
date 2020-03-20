@@ -8,7 +8,7 @@ import { VglService } from '../../shared/modules/vgl/vgl.service';
 import { routerTransition } from '../../router.animations';
 
 import { Observable, combineLatest, EMPTY } from 'rxjs';
-import { map, switchMap, catchError } from 'rxjs/operators';
+import { map, switchMap, catchError, withLatestFrom } from 'rxjs/operators';
 
 import { Job, Solution } from '../../shared/modules/vgl/models';
 import { SolutionVarBindings } from '../../shared/modules/solutions/models';
@@ -31,7 +31,7 @@ export class JobWizardComponent implements OnInit, OnDestroy {
   solutions: Solution[];
   private _solutionsSub;
 
-  private routeSub;
+  private _routeSub;
 
   @ViewChild(JobObjectComponent)
   private jobObject: JobObjectComponent;
@@ -49,37 +49,36 @@ export class JobWizardComponent implements OnInit, OnDestroy {
               private route: ActivatedRoute,
               private messageService: MessageService) {}
 
+  async updateJobFromUrl(path: string ) {
+    if (path === 'new') {
+      // let job = this.userStateService.getJob()
+      // if(job) {
+      //   this.userStateService.updateJob(job);
+      // } else {
+      //   this.userStateService.newJob();
+      // }
+    } else if (path === 'job' && this.route.snapshot.params.id) {
+      // Load the specified job from the server
+      const id = parseInt(this.route.snapshot.params.id, 10);
+      let job = await this.userStateService.loadJob(id).toPromise();
+      this.jobDatasetsComponent.loadJobInputs();
+
+      this.messageService.add({
+        severity: 'success',
+        summary: 'Load success',
+        detail: `Job ${job.id} loaded successfully.`
+      });
+    }
+  }
+
   ngOnInit() {
     // Check the URL and parameters to determine whether we're creating a new
     // job or loading an existing one.
-    this.routeSub = combineLatest(this.route.url, this.route.paramMap).pipe(
-      switchMap(([parts, params]) => {
-        if (parts[0].path === 'new') {
-          // Load a new, empty job object for the user to manage.
-          return this.userStateService.newJob();
 
-        } else if (parts[0].path === 'job' && params.has('id')) {
-          // Load the specified job from the server
-          const id = parseInt(params.get('id'), 10);
-          return this.userStateService.loadJob(id).pipe(
-            // Notify the user of job load status as a side-effect, then pass on
-            // the job object unchanged.
-            map(job => {
-              this.messageService.add({
-                severity: 'success',
-                summary: 'Load success',
-                detail: `Job ${job.id} loaded successfully.`
-              });
-              return job;
-            })
-          );
-        }
-      })
-    ).subscribe(() => {
-        // Only load job downloads after job has loaded
-        this.jobDatasetsComponent.loadJobInputs();
-    });
-
+    this._routeSub = this.route.url.subscribe( 
+      parts => this.updateJobFromUrl(parts[0].path) 
+    )
+    
     this._solutionsSub = this.userStateService.selectedSolutions.subscribe(
       solutions => this.solutions = solutions
     );
@@ -88,60 +87,56 @@ export class JobWizardComponent implements OnInit, OnDestroy {
   ngOnDestroy() {
     // Clean up subs
     this._solutionsSub.unsubscribe();
-    this.routeSub.unsubscribe();
+    this._routeSub.unsubscribe();
   }
 
-  save() {
+  async save() {
     this.noSave = true;
     this.messageService.clear();
     this.messageService.add({severity: 'info', summary: 'Saving job...', detail: '', sticky: true});
+    let error= 'Unknown error in save()';
+
     //const oldId = this.getJobObject().id;
-
-    this.doSave()
-      .pipe(catchError((err, obs) => {
+    try {
+      let resp = await this.doSave()
+      if (resp) {
+        const id = resp.id;
         this.messageService.clear();
-        this.messageService.add({severity: 'error', summary: 'Save failed!', detail: JSON.stringify(err), sticky: true});
-        return EMPTY;
-      }))
-      .subscribe(
-        (resp: Job) => {
-          if (resp) {
-            const id = resp.id;
-            this.messageService.clear();
-            this.messageService.add({severity: 'success', summary: 'Saved', detail: `Job ${id} saved successfully.`});
-            this.noSave = false;
-            this.router.navigate(['/wizard/job', id]);
-          }
-        }
-      );
-
+        this.messageService.add({severity: 'success', summary: 'Saved', detail: `Job ${id} saved successfully.`});
+        this.noSave = false;
+        return this.router.navigate(['/wizard/job', id]);
+      }
+    } catch(err) {
+      error = JSON.stringify(err)
+    }
+    this.messageService.clear();
+    this.messageService.add({severity: 'error', summary: 'Save failed!', detail: error, sticky: true});
+    this.noSave = false;
+    return EMPTY;
   }
 
-  submit() {
+  async submit() {
     this.noSave = true;
     this.messageService.clear();
     this.messageService.add({severity: 'info', summary: 'Submitting job...', detail: '', sticky: true});
 
-    // Save the job first, then submit it an navigate away.
-    this.doSave().subscribe(savedJob => {
-      this.vglService.submitJob(savedJob).subscribe(
-        () => {
-              this.messageService.add({
-                  severity: 'success',
-                  summary: 'Submitted',
-                  detail: `Job ${savedJob.id} submitted successfully.`,
-                  life: 10000
-              });
-              this.router.navigate(['/jobs']);
-          },
-        error => {
-          console.log('Failed to submit job: ' + error);
-        }
-      );
-    });
+    try {
+      let savedJob = await this.doSave();
+      await this.vglService.submitJob(savedJob);
+      this.messageService.add({
+        severity: 'success',
+        summary: 'Submitted',
+        detail: `Job ${savedJob.id} submitted successfully.`,
+        life: 10000
+      });
+      this.router.navigate(['/jobs']);
+    } catch(error) {
+      console.log('Failed to submit job: ' + error);
+      this.noSave = false;
+    }
   }
 
-  private doSave(): Observable<Job> {
+  private doSave(): Promise<Job> {
     // Save the job to the backend
     return this.vglService.saveJob(this.getJobObject(),
                                    this.userStateService.getJobDownloads(),

@@ -67,7 +67,7 @@ export class JobsService {
         return this.vgl.getComputeServices();
     }
 
-    public getMachineImages(computeServiceId: string): Observable<MachineImage[]> {
+    public getMachineImages(computeServiceId: string): Promise<MachineImage[]> {
         return this.vgl.getMachineImages(computeServiceId);
     }
 
