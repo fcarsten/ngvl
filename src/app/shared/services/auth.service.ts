@@ -8,6 +8,7 @@ import { UserStateService } from './user-state.service';
 import { ANONYMOUS_USER, JobDownload } from '../modules/vgl/models';
 import { OlMapService } from 'portal-core-ui/service/openlayermap/ol-map.service';
 import { LayerModel } from 'portal-core-ui/model/data/layer.model';
+import { environment } from '../../../environments/environment';
 
 @Injectable()
 export class AuthService {
@@ -31,7 +32,7 @@ export class AuthService {
     localStorage.removeItem('layers');
     this.userLoggedOut.emit(true);
     // Hit the VGL logout endpoint, then navigate to the dashboard.
-    this.http.get('/AuScope-Portal-API/logout')
+    this.http.get(environment.portalBaseUrl + 'logout')
       // VGL redirects from the spring logout to the old portal page, which 404's,
       // so catch that error and continue.
       .catch((err: HttpErrorResponse) => {

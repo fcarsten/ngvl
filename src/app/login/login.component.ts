@@ -4,6 +4,7 @@ import { routerTransition } from '../router.animations';
 import { UserStateService } from '../shared';
 import { OlMapService } from 'portal-core-ui/service/openlayermap/ol-map.service';
 import { LayerModel } from 'portal-core-ui/model/data/layer.model';
+import { environment } from '../../environments/environment';
 
 @Component({
     selector: 'app-login',
@@ -30,12 +31,12 @@ export class LoginComponent implements OnInit {
 
   loginGoogle() {
     this.selectedItemsToLocalStorage();
-    window.location.href = "/AuScope-Portal-API/login/google";
+    window.location.href = environment.portalBaseUrl + "login/google";
   }
 
   loginAaf() {
     this.selectedItemsToLocalStorage();
-    window.location.href = "/AuScope-Portal-API/login/aaf";
+    window.location.href = environment.portalBaseUrl + "login/aaf";
   }
 
 }

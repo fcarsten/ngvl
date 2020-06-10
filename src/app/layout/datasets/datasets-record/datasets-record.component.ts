@@ -11,6 +11,8 @@ import { VglService } from '../../../shared/modules/vgl/vgl.service';
 import { StyleChooserModalComponent } from '../../../shared/modules/grace/style-chooser.modal.component';
 import { GraceStyleSettings } from '../../../shared/modules/grace/grace-graph.models';
 import { GraceService } from '../../../shared/modules/grace/grace.service';
+import { GraceStyleService } from '../../../shared/modules/grace/grace-style.service';
+import { environment } from '../../../../environments/environment';
 
 
 // List of valid online resource types that can be added to the map
@@ -84,11 +86,10 @@ export class DatasetsRecordComponent {
 
 
                 }
-                this.olMapService.addCSWRecord(clonedRecord, {});
-                
+                this.olMapService.addCSWRecord(clonedRecord);
+
                 // Set a time if an extent exists
                 if (clonedRecord.temporalExtent && clonedRecord.temporalExtent.endPosition) {
-                    console.log("Changing to end position: " + JSON.stringify(clonedRecord.temporalExtent.endPosition));
                     this.changeTime(clonedRecord.temporalExtent.endPosition);
                 }
             } catch (error) {
@@ -445,20 +446,11 @@ export class DatasetsRecordComponent {
     }
 
     /**
-     * TODO: Restrict
-     *
-     * @param record CSW record
-     */
-    public allowGraceStyleChange(record: CSWRecordModel): boolean {
-        return true;
-    }
-
-    /**
      * TODO: Needs better check
-     * XXX
      */
     public isGraceRecord(): boolean {
-        if (this.cswRecord.id.toLowerCase().startsWith('mascons')) {
+        if (environment.grace && environment.grace.layers &&
+                environment.grace.layers.indexOf(this.cswRecord.id) >= 0) {
             return true;
         }
         return false;
@@ -471,14 +463,14 @@ export class DatasetsRecordComponent {
      */
     changeGraceStyle(record: CSWRecordModel) {
         if (this.graceStyleSettings === undefined || this.graceStyleSettings === null) {
-            console.log("Settings defaults");
             this.graceStyleSettings = {
                 minColor: '#ff0000',
                 minValue: -8,
                 neutralColor: '#ffffff',
                 neutralValue: 0,
                 maxColor: '#0000ff',
-                maxValue: 4
+                maxValue: 4,
+                transparentNeutralColor: false
             };
         }
         const modalRef = this.modalService.open(StyleChooserModalComponent, { size: 'sm' });
@@ -490,18 +482,12 @@ export class DatasetsRecordComponent {
                 neutralColor: newStyle.neutralColor,
                 neutralValue: newStyle.neutralValue,
                 maxColor: newStyle.maxColor,
-                maxValue: newStyle.maxValue
+                maxValue: newStyle.maxValue,
+                transparentNeutralColor: newStyle.transparentNeutralColor
             };
-           const sldUrl = 'http://localhost:8001/sld/' +
-                this.cswRecord.id + '/' +
-                this.graceStyleSettings.minValue + '/' +
-                this.graceStyleSettings.minColor.substr(1) + '/' +
-                this.graceStyleSettings.neutralValue + '/' +
-                this.graceStyleSettings.neutralColor.substr(1) + '/' +
-                this.graceStyleSettings.maxValue + '/' +
-                this.graceStyleSettings.maxColor.substr(1);
-           this.olMapService.setLayerSourceParam(this.cswRecord.id, 'LAYERS', undefined);
-           this.olMapService.setLayerSourceParam(this.cswRecord.id, 'SLD', sldUrl);
+            const sld = GraceStyleService.getGraceSld('mascons_stage4_V003a', 'mascon_style', this.graceStyleSettings);
+            this.olMapService.setLayerSourceParam(this.cswRecord.id, 'LAYERS', undefined);
+            this.olMapService.setLayerSourceParam(this.cswRecord.id, 'SLD_BODY', sld);
         }, () => {});
     }
 
