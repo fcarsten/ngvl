@@ -30,12 +30,12 @@ export class LoginComponent implements OnInit {
 
   loginGoogle() {
     this.selectedItemsToLocalStorage();
-    window.location.href = "/VGL-Portal/login/google";
+    window.location.href = "/AuScope-Portal-API/login/google";
   }
 
   loginAaf() {
     this.selectedItemsToLocalStorage();
-    window.location.href = "/VGL-Portal/login/aaf";
+    window.location.href = "/AuScope-Portal-API/login/aaf";
   }
 
 }

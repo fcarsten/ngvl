@@ -31,7 +31,7 @@ export class AuthService {
     localStorage.removeItem('layers');
     this.userLoggedOut.emit(true);
     // Hit the VGL logout endpoint, then navigate to the dashboard.
-    this.http.get('/VGL-Portal/logout')
+    this.http.get('/AuScope-Portal-API/logout')
       // VGL redirects from the spring logout to the old portal page, which 404's,
       // so catch that error and continue.
       .catch((err: HttpErrorResponse) => {
